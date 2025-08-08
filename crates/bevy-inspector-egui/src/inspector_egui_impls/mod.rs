@@ -15,7 +15,7 @@ use std::{
 mod bevy_impls;
 mod glam_impls;
 #[cfg(feature = "bevy_image")]
-mod image;
+pub mod image;
 mod std_impls;
 
 type InspectorEguiImplFn =
@@ -319,7 +319,7 @@ pub fn register_bevy_impls(type_registry: &mut TypeRegistry) {
     add_of_with_many::<bevy_ecs::entity::Entity>(type_registry, many_unimplemented::<bevy_ecs::entity::Entity>);
     add::<bevy_color::Color>(type_registry);
 
-    #[cfg(feature = "bevy_render")] 
+    #[cfg(feature = "bevy_render")]
     {
       add_of_with_many::<bevy_asset::Handle<bevy_render::mesh::Mesh>>(type_registry, many_unimplemented::<bevy_asset::Handle<bevy_render::mesh::Mesh>>);
       add::<bevy_render::view::RenderLayers>(type_registry);

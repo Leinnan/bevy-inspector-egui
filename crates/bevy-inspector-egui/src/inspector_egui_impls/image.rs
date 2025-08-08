@@ -1,16 +1,11 @@
-use std::{
-    any::Any,
-    collections::{HashMap, HashSet, hash_map::Entry},
-    sync::LazyLock,
-    sync::Mutex,
-};
-
 use crate::utils::pretty_type_name;
 use bevy_asset::{Assets, Handle};
-use bevy_egui::EguiUserTextures;
+use bevy_ecs::resource::Resource;
 use bevy_image::Image;
+use bevy_math::UVec2;
 use bevy_reflect::DynamicTypePath;
 use egui::{Vec2, load::SizedTexture};
+use std::{any::Any, collections::HashMap};
 
 use crate::{
     bevy_inspector::errors::{no_world_in_context, show_error},
@@ -126,125 +121,99 @@ impl InspectorPrimitive for Handle<Image> {
     }
 }
 
-static SCALED_DOWN_TEXTURES: LazyLock<Mutex<ScaledDownTextures>> = LazyLock::new(Default::default);
-
 fn update_and_show_image(
     image: &Handle<Image>,
     world: &mut RestrictedWorldView,
     ui: &mut egui::Ui,
 ) {
-    let (mut egui_user_textures, mut images) =
-        match world.get_two_resources_mut::<bevy_egui::EguiUserTextures, Assets<Image>>() {
-            (Ok(a), Ok(b)) => (a, b),
-            (a, b) => {
-                if let Err(e) = a {
-                    show_error(e, ui, &pretty_type_name::<bevy_egui::EguiContext>());
-                }
-                if let Err(e) = b {
-                    show_error(e, ui, &pretty_type_name::<Assets<Image>>());
-                }
-                return;
-            }
-        };
-
-    let mut scaled_down_textures = SCALED_DOWN_TEXTURES.lock().unwrap();
-
-    // todo: read asset events to re-rescale images of they changed
-    let rescaled = rescaled_image(
-        image,
-        &mut scaled_down_textures,
-        &mut images,
-        &mut egui_user_textures,
-    );
-    let (rescaled_handle, texture_id) = match rescaled {
-        Some(it) => it,
-        None => {
-            ui.label("<texture>");
-            return;
-        }
+    let Some(image) = ScaledDownTextures::get_or_load(image, world) else {
+        return;
     };
-
-    let rescaled_image = images.get(&rescaled_handle).unwrap();
-    ui.data_mut(|d| {
-        d.insert_temp(
-            format!("image:{}", image.id()).into(),
-            SizedTexture {
-                id: texture_id.clone(),
-                size: Vec2::new(
-                    rescaled_image.texture_descriptor.size.width as f32,
-                    rescaled_image.texture_descriptor.size.height as f32,
-                ),
-            },
-        )
-    });
-    show_image(rescaled_image, texture_id, ui);
-}
-
-fn show_image(
-    image: &Image,
-    texture_id: egui::TextureId,
-    ui: &mut egui::Ui,
-) -> Option<egui::Response> {
-    let size = image.texture_descriptor.size;
-    let size = egui::Vec2::new(size.width as f32, size.height as f32);
-
-    let source = SizedTexture {
-        id: texture_id,
-        size,
-    };
-
-    if size.max_elem() >= 128.0 {
-        let response = egui::CollapsingHeader::new("Texture").show(ui, |ui| ui.image(source));
-        response.body_response
+    if image.info.size.max_elem() >= 128.0 {
+        let _response = egui::CollapsingHeader::new("Texture").show(ui, |ui| ui.image(image.info));
     } else {
-        let response = ui.image(source);
-        Some(response)
+        let _response = ui.image(image.info);
     }
 }
 
-#[derive(Default)]
-struct ScaledDownTextures {
-    textures: HashMap<Handle<Image>, Handle<Image>>,
-    rescaled_textures: HashSet<Handle<Image>>,
+#[derive(Debug, Clone)]
+pub struct RescaledTextureInfo {
+    pub base_image: Handle<Image>,
+    #[allow(dead_code)]
+    pub scaled_image: Handle<Image>,
+    pub info: SizedTexture,
 }
 
-const RESCALE_TO_FIT: (u32, u32) = (100, 100);
+#[derive(Debug, Resource)]
+pub struct ScaledDownTextures {
+    textures: Vec<RescaledTextureInfo>,
+    max_size: UVec2,
+}
 
-fn rescaled_image<'a>(
-    handle: &Handle<Image>,
-    scaled_down_textures: &'a mut ScaledDownTextures,
-    textures: &mut Assets<Image>,
-    egui_usere_textures: &mut EguiUserTextures,
-) -> Option<(Handle<Image>, egui::TextureId)> {
-    let (texture, texture_id) = match scaled_down_textures.textures.entry(handle.clone()) {
-        Entry::Occupied(handle) => {
-            let handle: Handle<Image> = handle.get().clone();
-            (handle.clone(), egui_usere_textures.add_image(handle))
+impl Default for ScaledDownTextures {
+    fn default() -> Self {
+        Self {
+            textures: Vec::new(),
+            max_size: UVec2::new(100, 100),
         }
-        Entry::Vacant(entry) => {
-            if scaled_down_textures.rescaled_textures.contains(handle) {
-                return None;
-            }
+    }
+}
 
-            let original = textures.get(handle)?;
+impl ScaledDownTextures {
+    /// Sets the maximum size for scaled down textures.
+    pub fn max_size(&mut self, new_size: impl Into<UVec2>) {
+        self.max_size = new_size.into();
+    }
 
-            let (image, is_srgb) = image_texture_conversion::try_into_dynamic(original)?;
-            let resized = image.resize(
-                RESCALE_TO_FIT.0,
-                RESCALE_TO_FIT.1,
+    /// Gets or loads a scaled down texture for the given image.
+    pub fn get_or_load<'a>(
+        image: &Handle<Image>,
+        world: &mut RestrictedWorldView,
+    ) -> Option<RescaledTextureInfo> {
+        if let Some(res) = world.get_resource_mut::<Self>().ok().and_then(|resource| {
+            resource
+                .textures
+                .iter()
+                .find(|info| info.base_image.id().eq(&image.id()))
+                .cloned()
+        }) {
+            return Some(res);
+        }
+        let max_size = world
+            .get_resource_mut::<Self>()
+            .ok()
+            .map(|res| res.max_size.clone())
+            .unwrap_or(UVec2::splat(100));
+        let new_texture_info = {
+            let (mut egui_user_textures, mut images) =
+                match world.get_two_resources_mut::<bevy_egui::EguiUserTextures, Assets<Image>>() {
+                    (Ok(a), Ok(b)) => (a, b),
+                    _ => return None,
+                };
+            let original = images.get(image)?;
+
+            let (image_gen, is_srgb) = image_texture_conversion::try_into_dynamic(original)?;
+            let resized = image_gen.resize(
+                max_size.x,
+                max_size.y,
                 image::imageops::FilterType::Triangle,
             );
             let resized = image_texture_conversion::from_dynamic(resized, is_srgb);
-
-            let resized_handle = textures.add(resized);
-            let weak = resized_handle.clone_weak();
-            let texture_id = egui_usere_textures.add_image(resized_handle.clone());
-            entry.insert(resized_handle);
-            scaled_down_textures.rescaled_textures.insert(weak.clone());
-
-            (weak, texture_id)
+            let size = Vec2::new(resized.width() as f32, resized.height() as f32);
+            let resized_handle = images.add(resized);
+            let texture_id = egui_user_textures.add_image(resized_handle.clone());
+            RescaledTextureInfo {
+                base_image: image.clone(),
+                scaled_image: resized_handle.clone(),
+                info: SizedTexture {
+                    id: texture_id,
+                    size,
+                },
+            }
+        };
+        if let Ok(mut resource) = world.get_resource_mut::<Self>() {
+            resource.textures.push(new_texture_info.clone());
         }
-    };
-
-    Some((texture, texture_id))
+        Some(new_texture_info)
+    }
 }
