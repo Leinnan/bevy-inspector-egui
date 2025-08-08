@@ -77,7 +77,7 @@ use bevy_reflect::{
 };
 use bevy_reflect::{DynamicStruct, std_traits::ReflectDefault};
 use bevy_reflect::{OpaqueInfo, PartialReflect, Set, SetInfo};
-use egui::{Grid, Label, RichText, WidgetText};
+use egui::{Grid, Label, WidgetText};
 use std::borrow::Cow;
 use std::{
     any::{Any, TypeId},
@@ -489,29 +489,70 @@ impl InspectorUi<'_, '_> {
         let Some(TypeInfo::Struct(type_info)) = value.get_represented_type_info() else {
             return false;
         };
+        ui.style_mut().debug.show_expand_width = true;
+        ui.style_mut().debug.show_expand_height = true;
+
+        ui.style_mut().debug.debug_on_hover = true;
 
         let mut changed = false;
-        Grid::new(id)
-            .striped(true)
-            .spacing([10.0, 15.0])
-            .num_columns(2)
-            .show(ui, |ui| {
-                for i in 0..value.field_len() {
-                    let field_info = type_info.field_at(i).unwrap();
-                    let _response = ui.add(Label::new(field_info.name()).halign(egui::Align::Min));
-                    #[cfg(feature = "documentation")]
-                    show_docs(_response, field_info.docs());
 
-                    let field = value.field_at_mut(i).unwrap();
-                    changed |= self.ui_for_reflect_with_options(
-                        field,
-                        ui,
-                        id.with(i),
-                        inspector_options_struct_field(options, i),
+        Grid::new(id).show(ui, |ui| {
+            for i in 0..value.field_len() {
+                let Some(field) = type_info.field_at(i) else {
+                    continue;
+                };
+
+                ui.horizontal(|ui| {
+                    ui.add_space(5.0);
+                    let _response = ui.add(
+                        Label::new(WidgetText::Text(field.name().into()).weak())
+                            .selectable(false)
+                            .halign(egui::Align::Min),
                     );
-                    ui.end_row();
-                }
-            });
+                    #[cfg(feature = "documentation")]
+                    show_docs(_response, field.docs());
+                });
+                ui.end_row();
+
+                if let Some(field) = value.field_at_mut(i) {
+                    changed |= ui
+                        .vertical(|ui| {
+                            ui.indent(id.with(i), |ui| {
+                                self.ui_for_reflect_with_options(
+                                    field,
+                                    ui,
+                                    id.with(i),
+                                    inspector_options_struct_field(options, i),
+                                )
+                            })
+                            .inner
+                        })
+                        .inner;
+                };
+                ui.end_row();
+            }
+        });
+        // Grid::new(id)
+        //     .striped(true)
+        //     .spacing([10.0, 15.0])
+        //     .num_columns(2)
+        //     .show(ui, |ui| {
+        //         for i in 0..value.field_len() {
+        //             let field_info = type_info.field_at(i).unwrap();
+        //             let _response = ui.add(Label::new(field_info.name()).halign(egui::Align::Min));
+        //             #[cfg(feature = "documentation")]
+        //             show_docs(_response, field_info.docs());
+
+        //             let field = value.field_at_mut(i).unwrap();
+        //             changed |= self.ui_for_reflect_with_options(
+        //                 field,
+        //                 ui,
+        //                 id.with(i),
+        //                 inspector_options_struct_field(options, i),
+        //             );
+        //             ui.end_row();
+        //         }
+        //     });
         changed
     }
 
@@ -591,28 +632,26 @@ impl InspectorUi<'_, '_> {
             return false;
         }
         let mut response = false;
-        Grid::new(id)
-            .num_columns(if value.field_len() == 1 { 1 } else { 2 })
-            .show(ui, |ui| {
-                for i in (0..value.field_len()) {
-                    if value.field_len() > 1 {
-                        ui.label(i.to_string());
-                    }
-                    let Some(field) = value.field_mut(i) else {
-                        ui.end_row();
-                        continue;
-                    };
-                    if self.ui_for_reflect_with_options(
-                        field,
-                        ui,
-                        id.with(i),
-                        inspector_options_struct_field(options, i),
-                    ) {
-                        response = true;
-                    }
-                    ui.end_row();
+        Grid::new(id).show(ui, |ui| {
+            for i in (0..value.field_len()) {
+                if value.field_len() > 1 {
+                    ui.label(i.to_string());
                 }
-            });
+                let Some(field) = value.field_mut(i) else {
+                    ui.end_row();
+                    continue;
+                };
+                if self.ui_for_reflect_with_options(
+                    field,
+                    ui,
+                    id.with(i),
+                    inspector_options_struct_field(options, i),
+                ) {
+                    response = true;
+                }
+                ui.end_row();
+            }
+        });
         response
     }
 
@@ -1474,52 +1513,74 @@ impl InspectorUi<'_, '_> {
 
         let mut changed = false;
 
-        ui.vertical(|ui| {
-            let changed_variant =
-                self.ui_for_enum_variant_select(id, ui, value.variant_index(), type_info);
-            if let Some((_new_variant, dynamic_enum)) = changed_variant {
-                changed = true;
-                value.apply(&dynamic_enum);
-            }
-            let variant_index = value.variant_index();
+        ui.with_layout(
+            egui::Layout::top_down(egui::Align::Min).with_cross_justify(true),
+            |ui| {
+                let changed_variant =
+                    self.ui_for_enum_variant_select(id, ui, value.variant_index(), type_info);
+                if let Some((_new_variant, dynamic_enum)) = changed_variant {
+                    changed = true;
+                    value.apply(&dynamic_enum);
+                }
+                let variant_index = value.variant_index();
 
-            let always_show_label = matches!(value.variant_type(), VariantType::Struct);
-            changed |=
-                maybe_grid_label_if(value.field_len(), ui, id, always_show_label, |ui, label| {
-                    (0..value.field_len())
-                        .map(|i| {
-                            if label {
-                                #[cfg(feature = "documentation")]
-                                let field_docs = type_info.variant_at(variant_index).and_then(
-                                    |info| match info {
-                                        VariantInfo::Struct(info) => info.field_at(i)?.docs(),
-                                        _ => None,
-                                    },
-                                );
-
-                                let _response = if let Some(name) = value.name_at(i) {
-                                    ui.label(name)
-                                } else {
-                                    ui.label(i.to_string())
-                                };
-                                #[cfg(feature = "documentation")]
-                                show_docs(_response, field_docs);
-                            }
-                            let field_value = value
-                                .field_at_mut(i)
-                                .expect("invalid reflect impl: field len");
-                            let changed = self.ui_for_reflect_with_options(
-                                field_value,
-                                ui,
-                                id.with(i),
-                                inspector_options_enum_variant_field(options, variant_index, i),
-                            );
-                            ui.end_row();
-                            changed
-                        })
-                        .fold(false, or)
-                });
-        });
+                let always_show_label = matches!(value.variant_type(), VariantType::Struct);
+                changed |= maybe_grid_label_if(
+                    value.field_len(),
+                    ui,
+                    id,
+                    always_show_label,
+                    |ui, label| {
+                        (0..value.field_len())
+                            .map(|i| {
+                                if label {
+                                    let _response = if let Some(name) = value.name_at(i) {
+                                        ui.label(name)
+                                    } else {
+                                        ui.label(i.to_string())
+                                    };
+                                    #[cfg(feature = "documentation")]
+                                    {
+                                        let field_docs = type_info
+                                            .variant_at(variant_index)
+                                            .and_then(|info| match info {
+                                                VariantInfo::Struct(info) => info.docs(),
+                                                VariantInfo::Tuple(info) => info.docs(),
+                                                VariantInfo::Unit(info) => info.docs(),
+                                                #[allow(unreachable_patterns)]
+                                                _ => None,
+                                            });
+                                        show_docs(_response, field_docs);
+                                    }
+                                }
+                                let field_value = value
+                                    .field_at_mut(i)
+                                    .expect("invalid reflect impl: field len");
+                                let changed = ui
+                                    .vertical(|ui| {
+                                        ui.indent(id.with(i), |ui| {
+                                            self.ui_for_reflect_with_options(
+                                                field_value,
+                                                ui,
+                                                id.with(i),
+                                                inspector_options_enum_variant_field(
+                                                    options,
+                                                    variant_index,
+                                                    i,
+                                                ),
+                                            )
+                                        })
+                                        .inner
+                                    })
+                                    .inner;
+                                ui.end_row();
+                                changed
+                            })
+                            .fold(false, or)
+                    },
+                );
+            },
+        );
 
         changed
     }

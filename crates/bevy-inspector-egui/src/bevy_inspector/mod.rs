@@ -575,176 +575,187 @@ pub(crate) fn ui_for_entity_components(
         errors::entity_does_not_exist(ui, entity);
         return;
     };
-    ui.vertical_centered_justified(|ui| {
-        for (name, component_id, component_type_id, size) in components {
-            ui.add_space(10.0);
-            let id = id.with(component_id);
+    ui.with_layout(
+        Layout::top_down(egui::Align::Min).with_cross_justify(true),
+        |ui| {
+            for (name, component_id, component_type_id, size) in components {
+                ui.add_space(10.0);
+                let id = id.with(component_id);
 
-            let Some(component_type_id) = component_type_id else {
-                errors::no_type_id(ui, &name);
-                continue;
-            };
-            let label = WidgetText::Text(name.clone()).strong();
+                let Some(component_type_id) = component_type_id else {
+                    errors::no_type_id(ui, &name);
+                    continue;
+                };
+                let label = WidgetText::Text(name.clone()).strong();
 
-            #[cfg(feature = "documentation")]
-            let type_docs = type_registry
-                .get_type_info(component_type_id)
-                .and_then(|info| info.docs());
+                #[cfg(feature = "documentation")]
+                let type_docs = type_registry
+                    .get_type_info(component_type_id)
+                    .and_then(|info| info.docs());
 
-            let skip_all = size == 0;
-            if size == 0 {
-                continue;
-            }
-            let color = ui.style().visuals.code_bg_color;
-            let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, true);
-            let clicked = egui::Frame::dark_canvas(ui.style())
-                .stroke(Stroke::new(2.0, color))
-                .inner_margin(4.0)
-                .show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        let resp =
-                            ui.add(Label::new(label).sense(Sense::click()).selectable(false));
-                        #[cfg(feature = "documentation")]
-                        if type_docs.is_some_and(|docs| !docs.is_empty()) {
-                            // let width = ui.available_width().max(80.0) - 50.0;
-                            ui.add_space(10.0);
-                            crate::egui_utils::show_docs(ui.button("?"), type_docs);
-                        }
-                        if !skip_all && resp.clicked() {
-                            state.toggle(ui);
-                            state.store(ui.ctx());
-                        }
-                    });
-                });
-
-            if !state.is_open() {
-                if clicked.response.clicked() {
-                    state.toggle(ui);
-                    state.store(ui.ctx());
-                }
-                continue;
-            }
-            // create a context with access to the world except for the currently viewed component
-            let (mut component_view, world) =
-                world.split_off_component((entity, component_type_id));
-            let mut cx = Context {
-                world: Some(world),
-                #[allow(clippy::needless_option_as_deref)]
-                queue: queue.as_deref_mut(),
-            };
-
-            let value = match component_view.get_entity_component_reflect(
-                entity,
-                component_type_id,
-                type_registry,
-            ) {
-                Ok(value) => value,
-                Err(e) => {
-                    // ui.indent(id, |ui| {
-                    // let response = ui.label(egui::RichText::new(&name).underline());
-                    // response.on_hover_ui(|ui| errors::show_error(e, ui, &name));
-                    // });
+                let skip_all = size == 0;
+                if size == 0 {
                     continue;
                 }
-            };
-            egui::Frame::canvas(ui.style())
-                .inner_margin(15)
-                .show(ui, |ui| {
-                    ui.reset_style();
-
-                    let mut env = InspectorUi::for_bevy(type_registry, &mut cx);
-                    let id = id.with(component_id);
-                    let options = &();
-
-                    match value {
-                        ReflectBorrow::Mutable(mut value) => {
-                            let changed = env.ui_for_reflect_with_options(
-                                value.bypass_change_detection().as_partial_reflect_mut(),
-                                ui,
-                                id,
-                                options,
-                            );
-
-                            if changed {
-                                value.set_changed();
+                let color = ui.style().visuals.code_bg_color;
+                let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, true);
+                let clicked = egui::Frame::dark_canvas(ui.style())
+                    .stroke(Stroke::new(2.0, color))
+                    .inner_margin(4.0)
+                    .show(ui, |ui| {
+                        ui.horizontal_top(|ui| {
+                            let resp =
+                                ui.add(Label::new(label).sense(Sense::click()).selectable(false));
+                            #[cfg(feature = "documentation")]
+                            if type_docs.is_some_and(|docs| !docs.is_empty()) {
+                                // let width = ui.available_width().max(80.0) - 50.0;
+                                ui.add_space(10.0);
+                                crate::egui_utils::show_docs(
+                                    ui.add(
+                                        egui::Button::new("?")
+                                            .frame(false)
+                                            .sense(egui::Sense::hover()),
+                                    ),
+                                    type_docs,
+                                );
                             }
-                        }
-                        ReflectBorrow::Immutable(value) => env
-                            .ui_for_reflect_readonly_with_options(
-                                value.as_partial_reflect(),
-                                ui,
-                                id,
-                                options,
-                            ),
-                    };
-                });
+                            if !skip_all && resp.clicked() {
+                                state.toggle(ui);
+                                state.store(ui.ctx());
+                            }
+                        });
+                    });
 
-            // let header = egui::CollapsingHeader::new(label)
-            //     .icon(empty_icon)
-            //     .id_salt(id);
+                if !state.is_open() {
+                    if clicked.response.clicked() {
+                        state.toggle(ui);
+                        state.store(ui.ctx());
+                    }
+                    continue;
+                }
+                // create a context with access to the world except for the currently viewed component
+                let (mut component_view, world) =
+                    world.split_off_component((entity, component_type_id));
+                let mut cx = Context {
+                    world: Some(world),
+                    #[allow(clippy::needless_option_as_deref)]
+                    queue: queue.as_deref_mut(),
+                };
 
-            // // create a context with access to the world except for the currently viewed component
-            // let (mut component_view, world) = world.split_off_component((entity, component_type_id));
-            // let mut cx = Context {
-            //     world: Some(world),
-            //     #[allow(clippy::needless_option_as_deref)]
-            //     queue: queue.as_deref_mut(),
-            // };
+                let value = match component_view.get_entity_component_reflect(
+                    entity,
+                    component_type_id,
+                    type_registry,
+                ) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        // ui.indent(id, |ui| {
+                        // let response = ui.label(egui::RichText::new(&name).underline());
+                        // response.on_hover_ui(|ui| errors::show_error(e, ui, &name));
+                        // });
+                        continue;
+                    }
+                };
+                egui::Frame::canvas(ui.style())
+                    // .inner_margin(5)
+                    .show(ui, |ui| {
+                        ui.reset_style();
+                        ui.vertical(|ui| {
+                            let mut env = InspectorUi::for_bevy(type_registry, &mut cx);
+                            let id = id.with(component_id);
+                            let options = &();
 
-            // let value = match component_view.get_entity_component_reflect(
-            //     entity,
-            //     component_type_id,
-            //     type_registry,
-            // ) {
-            //     Ok(value) => value,
-            //     Err(e) => {
-            //         ui.indent(id, |ui| {
-            //             let response = ui.label(egui::RichText::new(&name).underline());
-            //             response.on_hover_ui(|ui| errors::show_error(e, ui, &name));
-            //         });
-            //         continue;
-            //     }
-            // };
+                            match value {
+                                ReflectBorrow::Mutable(mut value) => {
+                                    let changed = env.ui_for_reflect_with_options(
+                                        value.bypass_change_detection().as_partial_reflect_mut(),
+                                        ui,
+                                        id,
+                                        options,
+                                    );
 
-            // if value.is_changed() {
-            //     #[cfg(feature = "highlight_changes")]
-            //     set_highlight_style(ui);
-            // }
+                                    if changed {
+                                        value.set_changed();
+                                    }
+                                }
+                                ReflectBorrow::Immutable(value) => env
+                                    .ui_for_reflect_readonly_with_options(
+                                        value.as_partial_reflect(),
+                                        ui,
+                                        id,
+                                        options,
+                                    ),
+                            };
+                        });
+                    });
 
-            // let _response = header.show(ui, |ui| {
-            //     ui.reset_style();
+                // let header = egui::CollapsingHeader::new(label)
+                //     .icon(empty_icon)
+                //     .id_salt(id);
 
-            //     let mut env = InspectorUi::for_bevy(type_registry, &mut cx);
-            //     let id = id.with(component_id);
-            //     let options = &();
+                // // create a context with access to the world except for the currently viewed component
+                // let (mut component_view, world) = world.split_off_component((entity, component_type_id));
+                // let mut cx = Context {
+                //     world: Some(world),
+                //     #[allow(clippy::needless_option_as_deref)]
+                //     queue: queue.as_deref_mut(),
+                // };
 
-            //     match value {
-            //         ReflectBorrow::Mutable(mut value) => {
-            //             let changed = env.ui_for_reflect_with_options(
-            //                 value.bypass_change_detection().as_partial_reflect_mut(),
-            //                 ui,
-            //                 id,
-            //                 options,
-            //             );
+                // let value = match component_view.get_entity_component_reflect(
+                //     entity,
+                //     component_type_id,
+                //     type_registry,
+                // ) {
+                //     Ok(value) => value,
+                //     Err(e) => {
+                //         ui.indent(id, |ui| {
+                //             let response = ui.label(egui::RichText::new(&name).underline());
+                //             response.on_hover_ui(|ui| errors::show_error(e, ui, &name));
+                //         });
+                //         continue;
+                //     }
+                // };
 
-            //             if changed {
-            //                 value.set_changed();
-            //             }
-            //         }
-            //         ReflectBorrow::Immutable(value) => env.ui_for_reflect_readonly_with_options(
-            //             value.as_partial_reflect(),
-            //             ui,
-            //             id,
-            //             options,
-            //         ),
-            //     };
-            // });
+                // if value.is_changed() {
+                //     #[cfg(feature = "highlight_changes")]
+                //     set_highlight_style(ui);
+                // }
 
-            // #[cfg(feature = "documentation")]
-            // crate::egui_utils::show_docs(_response.header_response, type_docs);
-            // ui.reset_style();
-        }
-    });
+                // let _response = header.show(ui, |ui| {
+                //     ui.reset_style();
+
+                //     let mut env = InspectorUi::for_bevy(type_registry, &mut cx);
+                //     let id = id.with(component_id);
+                //     let options = &();
+
+                //     match value {
+                //         ReflectBorrow::Mutable(mut value) => {
+                //             let changed = env.ui_for_reflect_with_options(
+                //                 value.bypass_change_detection().as_partial_reflect_mut(),
+                //                 ui,
+                //                 id,
+                //                 options,
+                //             );
+
+                //             if changed {
+                //                 value.set_changed();
+                //             }
+                //         }
+                //         ReflectBorrow::Immutable(value) => env.ui_for_reflect_readonly_with_options(
+                //             value.as_partial_reflect(),
+                //             ui,
+                //             id,
+                //             options,
+                //         ),
+                //     };
+                // });
+
+                // #[cfg(feature = "documentation")]
+                // crate::egui_utils::show_docs(_response.header_response, type_docs);
+                // ui.reset_style();
+            }
+        },
+    );
 }
 
 #[cfg(feature = "highlight_changes")]

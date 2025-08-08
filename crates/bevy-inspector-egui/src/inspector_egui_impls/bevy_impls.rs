@@ -122,19 +122,22 @@ impl InspectorPrimitive for Handle<Mesh> {
         };
 
         mesh_ui_inner(mesh, ui);
-        ui.add_enabled_ui(mesh.indices().is_some(), |ui| {
-            if ui.button("Duplicate vertices").clicked() {
-                mesh.duplicate_vertices();
+        ui.end_row();
+        ui.vertical_centered_justified(|ui| {
+            ui.add_enabled_ui(mesh.indices().is_some(), |ui| {
+                if ui.button("Duplicate vertices").clicked() {
+                    mesh.duplicate_vertices();
+                }
+            });
+            ui.add_enabled_ui(mesh.indices().is_none(), |ui| {
+                if ui.button("Compute flat normals").clicked() {
+                    mesh.compute_flat_normals();
+                }
+            });
+            if ui.button("Generate tangents").clicked() {
+                let _ = mesh.generate_tangents();
             }
         });
-        ui.add_enabled_ui(mesh.indices().is_none(), |ui| {
-            if ui.button("Compute flat normals").clicked() {
-                mesh.compute_flat_normals();
-            }
-        });
-        if ui.button("Generate tangents").clicked() {
-            let _ = mesh.generate_tangents();
-        }
 
         false
     }
