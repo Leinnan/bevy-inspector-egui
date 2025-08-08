@@ -1,10 +1,11 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use crate::bevy_inspector::{EntityFilter, Filter};
 use crate::utils::guess_entity_name;
 use bevy_ecs::{prelude::*, query::QueryFilter};
-use bevy_reflect::TypeRegistry;
-use egui::{CollapsingHeader, RichText};
+use bevy_reflect::{Reflect, TypeRegistry};
+use egui::{CollapsingHeader, IconPainter, Label, Painter, RichText, TextBuffer};
 
 /// Display UI of the entity hierarchy.
 ///
@@ -49,6 +50,102 @@ where
     .show::<QF>(ui)
 }
 
+#[derive(Debug, Reflect, Clone)]
+pub struct HierarchyElement {
+    pub entity: Entity,
+    pub parent: Option<Entity>,
+    pub name: Cow<'static, str>,
+    pub depth: u8,
+    pub has_children: bool,
+}
+
+impl HierarchyElement {
+    pub fn visible_children(&self, ui: &egui::Ui) -> bool {
+        ui.data(|d| {
+            d.get_temp::<bool>(egui::Id::new(self.entity))
+                .unwrap_or_default()
+        })
+    }
+}
+
+#[derive(Debug, Reflect, Resource, Default, Clone)]
+#[reflect(Resource)]
+pub struct HierarchyStructure {
+    elements: Vec<HierarchyElement>,
+    visible_elements: Vec<Entity>,
+}
+
+impl HierarchyStructure {
+    fn add_recursive(
+        &mut self,
+        depth: u8,
+        entity: Entity,
+        parent: Option<Entity>,
+        world: &mut World,
+    ) {
+        let children = world.get::<Children>(entity);
+        let element = HierarchyElement {
+            entity,
+            parent,
+            depth,
+            has_children: children.is_some(),
+            name: guess_entity_name::guess_entity_name(&world, entity).into(),
+        };
+        self.elements.push(element);
+        let Some(children) = children else {
+            return;
+        };
+        let children = (*children).to_vec();
+        for child in children.iter() {
+            self.add_recursive(depth + 1, *child, Some(entity), world);
+        }
+    }
+    pub fn read_from_world<QF>(&mut self, world: &mut World)
+    where
+        QF: QueryFilter,
+    {
+        self.elements.clear();
+        if self.elements.capacity() < world.entities().len() as usize {
+            self.elements
+                .reserve(world.entities().len() as usize - self.elements.capacity());
+        }
+        let mut root_entities = world
+            .query_filtered::<Entity, (Without<ChildOf>, QF)>()
+            .iter(world)
+            .collect::<Vec<Entity>>();
+        root_entities.sort();
+        for root in root_entities {
+            self.add_recursive(0, root, None, world);
+        }
+    }
+    fn read_expanded(&mut self, ui: &egui::Ui) {
+        self.visible_elements.clear();
+        for el in self.elements.iter() {
+            if self.is_visible(&el, ui) {
+                self.visible_elements.push(el.entity);
+            }
+        }
+    }
+
+    pub fn is_visible(&self, el: &HierarchyElement, ui: &egui::Ui) -> bool {
+        match el.parent {
+            Some(parent) => {
+                let mut visible = false;
+                for i in 0..self.elements.len() {
+                    if self.elements[i].entity == parent {
+                        visible = self.elements[i].visible_children(ui);
+                        visible &= self.is_visible(&self.elements[i], ui);
+                        break;
+                    }
+                }
+
+                visible
+            }
+            None => true,
+        }
+    }
+}
+
 pub struct Hierarchy<'a, T = ()> {
     pub world: &'a mut World,
     pub type_registry: &'a TypeRegistry,
@@ -86,29 +183,104 @@ impl<T> Hierarchy<'_, T> {
         QF: QueryFilter,
         F: EntityFilter,
     {
-        let mut root_query = self
-            .world
-            .query_filtered::<Entity, (Without<ChildOf>, QF)>();
+        let mut hierarchy = HierarchyStructure::default();
+        hierarchy.read_from_world::<QF>(self.world);
+        hierarchy.read_expanded(ui);
+        // let mut root_query = self
+        //     .world
+        //     .query_filtered::<Entity, (Without<ChildOf>, QF)>();
 
-        let always_open: HashSet<Entity> = self
-            .selected
-            .iter()
-            .flat_map(|selected| {
-                std::iter::successors(Some(selected), |&entity| {
-                    self.world.get::<ChildOf>(entity).map(|c| c.0)
-                })
-                .skip(1)
-            })
-            .collect();
+        // let always_open: HashSet<Entity> = self
+        //     .selected
+        //     .iter()
+        //     .flat_map(|selected| {
+        //         std::iter::successors(Some(selected), |&entity| {
+        //             self.world.get::<ChildOf>(entity).map(|c| c.0)
+        //         })
+        //         .skip(1)
+        //     })
+        //     .collect();
 
-        let mut entities: Vec<_> = root_query.iter(self.world).collect();
-        filter.filter_entities(self.world, &mut entities);
-        entities.sort();
+        // let mut entities: Vec<_> = root_query.iter(self.world).collect();
+        // filter.filter_entities(self.world, &mut entities);
+        // entities.sort();
+        let selection_mode = ui.input(|input| {
+            SelectionMode::from_ctrl_shift(
+                input.modifiers.ctrl || input.modifiers.mac_cmd,
+                input.modifiers.shift,
+            )
+        });
 
+        let text_height = egui::TextStyle::Body.resolve(ui.style()).size * 1.5;
+        let table = egui_extras::TableBuilder::new(ui)
+            .striped(true)
+            .vscroll(false)
+            .sense(egui::Sense::click())
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(egui_extras::Column::remainder())
+            .resizable(false);
         let mut selected = false;
-        for &entity in &entities {
-            selected |= self.entity_ui(ui, entity, &always_open, &entities, &filter);
-        }
+        table.body(|body| {
+            body.rows(text_height, hierarchy.visible_elements.len(), |mut row| {
+                let Some(ent) = hierarchy.visible_elements.get(row.index()) else {
+                    return;
+                };
+                let Some(el) = hierarchy.elements.iter().find(|el| el.entity.eq(ent)) else {
+                    return;
+                };
+                if !hierarchy.visible_elements.contains(&el.entity) {
+                    return;
+                }
+                row.set_selected(self.selected.contains(el.entity));
+                // let entity_name = guess_entity_name::guess_entity_name(self.world, *entity);
+                row.col(|ui| {
+                    if el.depth > 0 {
+                        ui.add_space(el.depth as f32 * 15.0);
+                    }
+                    if el.has_children {
+                        let visible = ui.data(|d| {
+                            d.get_temp::<bool>(egui::Id::new(el.entity))
+                                .unwrap_or_default()
+                        });
+                        if visible && ui.button("^").clicked() {
+                            ui.data_mut(|d| d.insert_temp(egui::Id::new(el.entity), false));
+                        } else if !visible && ui.button(">").clicked() {
+                            ui.data_mut(|d| d.insert_temp(egui::Id::new(el.entity), true));
+                        }
+                    }
+                    ui.add(Label::new(el.name.as_str()).selectable(false));
+                    // selected |= self.entity_ui(ui, *entity, &always_open, &entities, &filter);
+                    // ui.label(entity_name);
+                });
+                if row.response().clicked() {
+                    let extend_with = |from, to| {
+                        // PERF: this could be done in one scan
+                        let from_position = hierarchy
+                            .visible_elements
+                            .iter()
+                            .position(|&entity| entity == from);
+                        let to_position = hierarchy
+                            .visible_elements
+                            .iter()
+                            .position(|&entity| entity == to);
+                        from_position
+                            .zip(to_position)
+                            .map(|(from, to)| {
+                                let (min, max) = if from < to { (from, to) } else { (to, from) };
+                                hierarchy.visible_elements[min..=max].iter().copied()
+                            })
+                            .into_iter()
+                            .flatten()
+                    };
+                    self.selected.select(selection_mode, *ent, extend_with);
+                    selected = true;
+                }
+            })
+        });
+
+        // for &entity in &entities {
+        //     selected |= self.entity_ui(ui, entity, &always_open, &entities, &filter);
+        // }
         selected
     }
 

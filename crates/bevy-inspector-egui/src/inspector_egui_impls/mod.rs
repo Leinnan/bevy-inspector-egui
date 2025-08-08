@@ -286,8 +286,8 @@ pub fn register_std_impls(type_registry: &mut TypeRegistry) {
 /// Register [`InspectorEguiImpl`]s for [`bevy_math`]/`glam` types
 #[rustfmt::skip]
 pub fn register_glam_impls(type_registry: &mut TypeRegistry) {
-    add_raw::<bevy_math::Vec2>(type_registry, glam_impls::vec2_ui, glam_impls::vec2_ui_readonly, glam_impls::vec2_ui_many);
-    add_raw::<bevy_math::Vec3>(type_registry, glam_impls::vec3_ui, glam_impls::vec3_ui_readonly, glam_impls::vec3_ui_many);
+    // add_raw::<bevy_math::Vec2>(type_registry, glam_impls::vec2_ui, glam_impls::vec2_ui_readonly, glam_impls::vec2_ui_many);
+    // add_raw::<bevy_math::Vec3>(type_registry, glam_impls::vec3_ui, glam_impls::vec3_ui_readonly, glam_impls::vec3_ui_many);
     add_raw::<bevy_math::Vec3A>(type_registry, glam_impls::vec3a_ui, glam_impls::vec3a_ui_readonly, glam_impls::vec3a_ui_many);
     add_raw::<bevy_math::Vec4>(type_registry, glam_impls::vec4_ui, glam_impls::vec4_ui_readonly, glam_impls::vec4_ui_many);
     add_raw::<bevy_math::UVec2>(type_registry, glam_impls::uvec2_ui, glam_impls::uvec2_ui_readonly, glam_impls::uvec2_ui_many);
@@ -319,7 +319,7 @@ pub fn register_bevy_impls(type_registry: &mut TypeRegistry) {
     add_of_with_many::<bevy_ecs::entity::Entity>(type_registry, many_unimplemented::<bevy_ecs::entity::Entity>);
     add::<bevy_color::Color>(type_registry);
 
-    #[cfg(feature = "bevy_render")] 
+    #[cfg(feature = "bevy_render")]
     {
       add_of_with_many::<bevy_asset::Handle<bevy_render::mesh::Mesh>>(type_registry, many_unimplemented::<bevy_asset::Handle<bevy_render::mesh::Mesh>>);
       add::<bevy_render::view::RenderLayers>(type_registry);

@@ -77,7 +77,7 @@ use bevy_reflect::{
 };
 use bevy_reflect::{DynamicStruct, std_traits::ReflectDefault};
 use bevy_reflect::{OpaqueInfo, PartialReflect, Set, SetInfo};
-use egui::{Grid, WidgetText};
+use egui::{Grid, Label, RichText, WidgetText};
 use std::borrow::Cow;
 use std::{
     any::{Any, TypeId},
@@ -491,24 +491,27 @@ impl InspectorUi<'_, '_> {
         };
 
         let mut changed = false;
-        Grid::new(id).show(ui, |ui| {
-            for i in 0..value.field_len() {
-                let field_info = type_info.field_at(i).unwrap();
+        Grid::new(id)
+            .striped(true)
+            .spacing([10.0, 15.0])
+            .num_columns(2)
+            .show(ui, |ui| {
+                for i in 0..value.field_len() {
+                    let field_info = type_info.field_at(i).unwrap();
+                    let _response = ui.add(Label::new(field_info.name()).halign(egui::Align::Min));
+                    #[cfg(feature = "documentation")]
+                    show_docs(_response, field_info.docs());
 
-                let _response = ui.label(field_info.name());
-                #[cfg(feature = "documentation")]
-                show_docs(_response, field_info.docs());
-
-                let field = value.field_at_mut(i).unwrap();
-                changed |= self.ui_for_reflect_with_options(
-                    field,
-                    ui,
-                    id.with(i),
-                    inspector_options_struct_field(options, i),
-                );
-                ui.end_row();
-            }
-        });
+                    let field = value.field_at_mut(i).unwrap();
+                    changed |= self.ui_for_reflect_with_options(
+                        field,
+                        ui,
+                        id.with(i),
+                        inspector_options_struct_field(options, i),
+                    );
+                    ui.end_row();
+                }
+            });
         changed
     }
 
@@ -584,24 +587,33 @@ impl InspectorUi<'_, '_> {
         id: egui::Id,
         options: &dyn Any,
     ) -> bool {
-        maybe_grid(value.field_len(), ui, id, |ui, label| {
-            (0..value.field_len())
-                .map(|i| {
-                    if label {
+        if value.field_len() == 0 {
+            return false;
+        }
+        let mut response = false;
+        Grid::new(id)
+            .num_columns(if value.field_len() == 1 { 1 } else { 2 })
+            .show(ui, |ui| {
+                for i in (0..value.field_len()) {
+                    if value.field_len() > 1 {
                         ui.label(i.to_string());
                     }
-                    let field = value.field_mut(i).unwrap();
-                    let changed = self.ui_for_reflect_with_options(
+                    let Some(field) = value.field_mut(i) else {
+                        ui.end_row();
+                        continue;
+                    };
+                    if self.ui_for_reflect_with_options(
                         field,
                         ui,
                         id.with(i),
                         inspector_options_struct_field(options, i),
-                    );
+                    ) {
+                        response = true;
+                    }
                     ui.end_row();
-                    changed
-                })
-                .fold(false, or)
-        })
+                }
+            });
+        response
     }
 
     fn ui_for_tuple_struct_readonly(
@@ -617,13 +629,6 @@ impl InspectorUi<'_, '_> {
                     ui.label(i.to_string());
                 }
                 let field = value.field(i).unwrap();
-                self.ui_for_reflect_readonly_with_options(
-                    field,
-                    ui,
-                    id.with(i),
-                    inspector_options_struct_field(options, i),
-                );
-                ui.end_row();
             }
         })
     }

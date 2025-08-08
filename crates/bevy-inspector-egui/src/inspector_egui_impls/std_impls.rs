@@ -39,7 +39,7 @@ impl<T: Reflect + Num> InspectorPrimitive for T {
             .downcast_ref::<NumberOptions<T>>()
             .cloned()
             .unwrap_or_default();
-        display_number(self, &options, ui, 0.1)
+        display_number(self, &options, ui, 0.1, None)
     }
 
     fn ui_readonly(
@@ -76,13 +76,14 @@ pub fn number_ui<T: egui::emath::Numeric>(
     options: &dyn Any,
     _: egui::Id,
     _: InspectorUi<'_, '_>,
+    name: Option<&str>,
 ) -> bool {
     let value = value.downcast_mut::<T>().unwrap();
     let options = options
         .downcast_ref::<NumberOptions<T>>()
         .cloned()
         .unwrap_or_default();
-    display_number(value, &options, ui, 0.1)
+    display_number(value, &options, ui, 0.1, name)
 }
 pub fn number_ui_readonly<T: egui::emath::Numeric>(
     value: &dyn Any,
@@ -117,6 +118,7 @@ fn display_number<T: egui::emath::Numeric>(
     options: &NumberOptions<T>,
     ui: &mut egui::Ui,
     default_speed: f32,
+    name: Option<&str>,
 ) -> bool {
     let mut changed = match options.display {
         NumberDisplay::Drag => {
@@ -138,14 +140,18 @@ fn display_number<T: egui::emath::Numeric>(
             } else {
                 widget = widget.speed(default_speed);
             }
-            ui.add(widget).changed()
+            ui.add(widget)
+                .on_hover_text(name.unwrap_or_default())
+                .changed()
         }
         NumberDisplay::Slider => {
             let min = options.min.unwrap_or_else(|| T::from_f64(0.0));
             let max = options.max.unwrap_or_else(|| T::from_f64(1.0));
             let range = min..=max;
             let widget = egui::Slider::new(value, range);
-            ui.add(widget).changed()
+            ui.add(widget)
+                .on_hover_text(name.unwrap_or_default())
+                .changed()
         }
     };
 
@@ -367,11 +373,11 @@ fn display_range<T: egui::emath::Numeric + InspectorOptionsType>(
     let mut changed = false;
     ui.horizontal(|ui| {
         if let Some(start) = start {
-            changed |= number_ui::<T>(start, ui, start_options, id, env.reborrow());
+            changed |= number_ui::<T>(start, ui, start_options, id, env.reborrow(), None);
         }
         ui.label(symbol);
         if let Some(end) = end {
-            changed |= number_ui::<T>(end, ui, end_options, id, env.reborrow());
+            changed |= number_ui::<T>(end, ui, end_options, id, env.reborrow(), None);
         }
     });
 

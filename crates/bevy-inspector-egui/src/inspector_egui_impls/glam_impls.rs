@@ -72,15 +72,12 @@ macro_rules! vec_ui {
                 .unwrap_or_default();
 
             let mut changed = false;
-            ui.scope(|ui| {
-                ui.style_mut().spacing.item_spacing = egui::Vec2::new(4.0, 0.);
 
-                ui.columns($count, |ui| match ui {
-                    [$($component),*] => {
-                        $(changed |= env.ui_for_reflect_with_options(&mut value.$component, $component, id.with(stringify!($component)), &options.map(|vec| vec.$component));)*
-                    }
-                    _ => unreachable!(),
-                });
+            ui.columns($count, |ui| match ui {
+                [$($component),*] => {
+                    $(changed |= env.ui_for_reflect_with_options(&mut value.$component, $component, id.with(stringify!($component)), &options.map(|vec| vec.$component));)*
+                }
+                _ => unreachable!(),
             });
             changed
         }
@@ -94,15 +91,11 @@ macro_rules! vec_ui {
         ) {
             let value = value.downcast_ref::<$ty>().unwrap();
 
-            ui.scope(|ui| {
-                ui.style_mut().spacing.item_spacing = egui::Vec2::new(4.0, 0.);
-
-                ui.columns($count, |ui| match ui {
-                    [$($component),*] => {
-                        $(env.ui_for_reflect_readonly(&value.$component, $component);)*
-                    }
-                    _ => unreachable!(),
-                });
+            ui.columns($count, |ui| match ui {
+                [$($component),*] => {
+                    $(env.ui_for_reflect_readonly(&value.$component, $component);)*
+                }
+                _ => unreachable!(),
             });
         }
     };
@@ -114,14 +107,14 @@ macro_rules! mat_ui {
             value: &mut dyn Any,
             ui: &mut egui::Ui,
             _: &dyn Any,
-            _: egui::Id,
+            id: egui::Id,
             mut env: InspectorUi<'_, '_>,
         ) -> bool {
             let value = value.downcast_mut::<$ty>().unwrap();
 
             let mut changed = false;
             ui.vertical(|ui| {
-                $(changed |= env.ui_for_reflect(&mut value.$component, ui);)*
+                $(changed |= env.ui_for_reflect_with_options(&mut value.$component, ui, id.with(stringify!($component)), &());)*
             });
             changed
         }
@@ -142,8 +135,8 @@ macro_rules! mat_ui {
     };
 }
 
-vec_ui!(vec2_ui vec2_ui_readonly Vec2: 2 x y);
-vec_ui!(vec3_ui vec3_ui_readonly Vec3: 3 x y z);
+// vec_ui!(vec2_ui vec2_ui_readonly Vec2: 2 x y);
+// vec_ui!(vec3_ui vec3_ui_readonly Vec3: 3 x y z);
 vec_ui!(vec3a_ui vec3a_ui_readonly Vec3A: 3 x y z);
 vec_ui!(vec4_ui vec4_ui_readonly Vec4: 4 x y z w);
 vec_ui!(uvec2_ui uvec2_ui_readonly UVec2: 2 x y);

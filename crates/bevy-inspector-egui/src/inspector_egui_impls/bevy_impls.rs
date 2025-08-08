@@ -122,7 +122,6 @@ impl InspectorPrimitive for Handle<Mesh> {
         };
 
         mesh_ui_inner(mesh, ui);
-
         ui.add_enabled_ui(mesh.indices().is_some(), |ui| {
             if ui.button("Duplicate vertices").clicked() {
                 mesh.duplicate_vertices();

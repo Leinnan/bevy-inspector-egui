@@ -119,7 +119,7 @@ impl<'a, F: FnMut(&mut Ui, &str) -> Response, V: AsRef<str>, I: Iterator<Item = 
                         *buf = text.to_owned();
                         changed = true;
 
-                        ui.memory_mut(|m| m.close_popup());
+                        ui.memory_mut(|m| m.close_popup(popup_id));
                     }
                 }
             });
