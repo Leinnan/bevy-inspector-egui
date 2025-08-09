@@ -1,5 +1,5 @@
 use crate::utils::pretty_type_name;
-use bevy_asset::{Assets, Handle};
+use bevy_asset::{Assets, Handle, UntypedAssetId};
 use bevy_ecs::resource::Resource;
 use bevy_image::Image;
 use bevy_math::{URect, UVec2};
@@ -147,6 +147,7 @@ pub struct RescaledTextureInfo {
 #[derive(Debug, Resource)]
 pub struct ScaledDownTextures {
     textures: Vec<RescaledTextureInfo>,
+    trimmed_textures: HashMap<(URect, UntypedAssetId), RescaledTextureInfo>,
     max_size: UVec2,
 }
 
@@ -155,6 +156,7 @@ impl Default for ScaledDownTextures {
         Self {
             textures: Vec::new(),
             max_size: UVec2::new(100, 100),
+            trimmed_textures: HashMap::new(),
         }
     }
 }
@@ -223,13 +225,12 @@ impl ScaledDownTextures {
         rect: URect,
         world: &mut RestrictedWorldView,
     ) -> Option<RescaledTextureInfo> {
-        if let Some(res) = world.get_resource_mut::<Self>().ok().and_then(|resource| {
-            resource
-                .textures
-                .iter()
-                .find(|info| info.base_image.id().eq(&image.id()))
-                .cloned()
-        }) {
+        let key = (rect, image.id().untyped());
+        if let Some(res) = world
+            .get_resource_mut::<Self>()
+            .ok()
+            .and_then(|resource| resource.trimmed_textures.get(&key).cloned())
+        {
             return Some(res);
         }
         let new_texture_info = {
@@ -256,7 +257,9 @@ impl ScaledDownTextures {
             }
         };
         if let Ok(mut resource) = world.get_resource_mut::<Self>() {
-            resource.textures.push(new_texture_info.clone());
+            resource
+                .trimmed_textures
+                .insert(key, new_texture_info.clone());
         }
         Some(new_texture_info)
     }
