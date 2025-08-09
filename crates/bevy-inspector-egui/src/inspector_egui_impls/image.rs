@@ -2,7 +2,7 @@ use crate::utils::pretty_type_name;
 use bevy_asset::{Assets, Handle};
 use bevy_ecs::resource::Resource;
 use bevy_image::Image;
-use bevy_math::UVec2;
+use bevy_math::{URect, UVec2};
 use bevy_reflect::DynamicTypePath;
 use egui::{Vec2, load::SizedTexture};
 use std::{any::Any, collections::HashMap};
@@ -198,6 +198,50 @@ impl ScaledDownTextures {
                 max_size.y,
                 image::imageops::FilterType::Triangle,
             );
+            let resized = image_texture_conversion::from_dynamic(resized, is_srgb);
+            let size = Vec2::new(resized.width() as f32, resized.height() as f32);
+            let resized_handle = images.add(resized);
+            let texture_id = egui_user_textures.add_image(resized_handle.clone());
+            RescaledTextureInfo {
+                base_image: image.clone(),
+                scaled_image: resized_handle.clone(),
+                info: SizedTexture {
+                    id: texture_id,
+                    size,
+                },
+            }
+        };
+        if let Ok(mut resource) = world.get_resource_mut::<Self>() {
+            resource.textures.push(new_texture_info.clone());
+        }
+        Some(new_texture_info)
+    }
+
+    /// Gets or loads a scaled down texture for the given image.
+    pub fn get_or_load_trimmed<'a>(
+        image: &Handle<Image>,
+        rect: URect,
+        world: &mut RestrictedWorldView,
+    ) -> Option<RescaledTextureInfo> {
+        if let Some(res) = world.get_resource_mut::<Self>().ok().and_then(|resource| {
+            resource
+                .textures
+                .iter()
+                .find(|info| info.base_image.id().eq(&image.id()))
+                .cloned()
+        }) {
+            return Some(res);
+        }
+        let new_texture_info = {
+            let (mut egui_user_textures, mut images) =
+                match world.get_two_resources_mut::<bevy_egui::EguiUserTextures, Assets<Image>>() {
+                    (Ok(a), Ok(b)) => (a, b),
+                    _ => return None,
+                };
+            let original = images.get(image)?;
+
+            let (image_gen, is_srgb) = image_texture_conversion::try_into_dynamic(original)?;
+            let resized = image_gen.crop_imm(rect.min.x, rect.min.y, rect.width(), rect.height());
             let resized = image_texture_conversion::from_dynamic(resized, is_srgb);
             let size = Vec2::new(resized.width() as f32, resized.height() as f32);
             let resized_handle = images.add(resized);
