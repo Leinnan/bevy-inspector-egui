@@ -822,27 +822,53 @@ impl InspectorUi<'_, '_> {
         ui.vertical(|ui| {
             let mut op = None;
             let len = list.len();
-            if len == 0 && ui_for_empty_list(ui) {
-                op = Some(AddElement(0))
-            }
-            for i in 0..len {
-                egui::Grid::new((id, i)).show(ui, |ui| {
-                    ui.label(i.to_string());
-                    let val = list.get_mut(i).unwrap();
-                    ui.horizontal_top(|ui| {
-                        changed |= self.ui_for_reflect_with_options(val, ui, id.with(i), options);
+            ui.add(
+                egui::Label::new(format!("{} elements", len))
+                    .selectable(false)
+                    .extend(),
+            );
+
+            if len > 0 {
+                egui::Grid::new(id.with("array"))
+                    .striped(true)
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        for i in 0..len {
+                            ui.menu_button(i.to_string(), |ui| {
+                                if remove_button(ui).on_hover_text("Remove element").clicked() {
+                                    op = Some(RemoveElement(i));
+                                }
+                                let up_enabled = i > 0;
+                                ui.add_enabled_ui(up_enabled, |ui| {
+                                    if up_button(ui).on_hover_text("Move element up").clicked() {
+                                        op = Some(MoveElementUp(i));
+                                    }
+                                });
+                                let down_enabled =
+                                    len.checked_sub(1).map(|l| i < l).unwrap_or(false);
+                                ui.add_enabled_ui(down_enabled, |ui| {
+                                    if down_button(ui).on_hover_text("Move element down").clicked()
+                                    {
+                                        op = Some(MoveElementDown(i));
+                                    }
+                                });
+                            });
+                            let val = list.get_mut(i).unwrap();
+                            changed |=
+                                self.ui_for_reflect_with_options(val, ui, id.with(i), options);
+                            ui.end_row();
+                        }
                     });
-                    ui.end_row();
+            }
 
-                    let item_op = ui_for_list_controls(ui, i, len);
-                    if item_op.is_some() {
-                        op = item_op;
-                    }
-                });
-
-                if i != len - 1 {
-                    ui.separator();
-                }
+            if ui
+                .with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    ui.add(egui::Button::new("Add Element"))
+                })
+                .inner
+                .clicked()
+            {
+                op = Some(AddElement(0));
             }
 
             let Some(TypeInfo::List(info)) = list.get_represented_type_info() else {

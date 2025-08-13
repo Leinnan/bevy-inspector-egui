@@ -40,13 +40,13 @@ impl InspectorPrimitive for Handle<Image> {
             .textures
             .clone();
         let Some(image) = ScaledDownTextures::get_or_load(self, world) else {
-            let iimages = world.get_resource_mut::<Assets<Image>>().unwrap();
-            let Some(current_image) = iimages.get(self.id()) else {
-                ui.label("No image");
-                return false;
-            };
-            ui.label(format!("{:?}", current_image.texture_descriptor));
-            ui.label(format!("{:?}", current_image.texture_view_descriptor));
+            // let iimages = world.get_resource_mut::<Assets<Image>>().unwrap();
+            // let Some(current_image) = iimages.get(self.id()) else {
+            //     ui.label("No image");
+            //     return false;
+            // };
+            // ui.label(format!("{:?}", current_image.texture_descriptor));
+            // ui.label(format!("{:?}", current_image.texture_view_descriptor));
             return false;
         };
 
