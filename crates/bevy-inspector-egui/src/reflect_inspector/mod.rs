@@ -819,7 +819,7 @@ impl InspectorUi<'_, '_> {
         use ListOp::*;
         let mut changed = false;
 
-        ui.vertical(|ui| {
+        ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             let mut op = None;
             let len = list.len();
             ui.add(
@@ -831,6 +831,7 @@ impl InspectorUi<'_, '_> {
             if len > 0 {
                 egui::Grid::new(id.with("array"))
                     .striped(true)
+                    .spacing([6.0, 8.0])
                     .num_columns(2)
                     .show(ui, |ui| {
                         for i in 0..len {
@@ -861,13 +862,7 @@ impl InspectorUi<'_, '_> {
                     });
             }
 
-            if ui
-                .with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    ui.add(egui::Button::new("Add Element"))
-                })
-                .inner
-                .clicked()
-            {
+            if ui.add(egui::Button::new("Add Element")).clicked() {
                 op = Some(AddElement(0));
             }
 
