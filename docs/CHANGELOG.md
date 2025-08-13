@@ -1,7 +1,13 @@
 # Changelog
 
+## Version 0.33.1
+- add checkbox for whether observers should be displayed by @Rezan7CC [(#279)](https://github.com/jakobhellermann/bevy-inspector-egui/pull/279)
+
+## Version 0.33.0
+- update to `egui 0.32` / `bevy_egui 0.36` [(#280)](https://github.com/jakobhellermann/bevy-inspector-egui/pull/280)
+
 ## Version 0.32.0
-- update to `bevy_egui 0.15` [(#268)](https://github.com/jakobhellermann/bevy-inspector-egui/pull/268)
+- update to `bevy_egui 0.35.0` [(#268)](https://github.com/jakobhellermann/bevy-inspector-egui/pull/268)
 - don't show `Add Element` button for non-constructable types
 - add ability to show `TypeId`s
 
