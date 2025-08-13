@@ -318,6 +318,7 @@ pub fn register_glam_impls(type_registry: &mut TypeRegistry) {
 pub fn register_bevy_impls(type_registry: &mut TypeRegistry) {
     add_of_with_many::<bevy_ecs::entity::Entity>(type_registry, many_unimplemented::<bevy_ecs::entity::Entity>);
     add::<bevy_color::Color>(type_registry);
+    add::<bevy_color::LinearRgba>(type_registry);
 
     #[cfg(feature = "bevy_render")]
     {

@@ -201,6 +201,34 @@ fn mesh_ui_inner(mesh: &Mesh, ui: &mut egui::Ui) {
     });
 }
 
+impl InspectorPrimitive for LinearRgba {
+    fn ui(&mut self, ui: &mut egui::Ui, _: &dyn Any, _: egui::Id, _: InspectorUi<'_, '_>) -> bool {
+        let mut color = [self.red, self.green, self.blue, self.alpha];
+        if ui
+            .color_edit_button_rgba_premultiplied(&mut color)
+            .changed()
+        {
+            self.red = color[0];
+            self.green = color[1];
+            self.blue = color[2];
+            self.alpha = color[3];
+            return true;
+        }
+        false
+    }
+
+    fn ui_readonly(
+        &self,
+        ui: &mut egui::Ui,
+        options: &dyn Any,
+        id: egui::Id,
+        env: InspectorUi<'_, '_>,
+    ) {
+        let mut copy = *self;
+        ui.add_enabled_ui(false, |ui| copy.ui(ui, options, id, env));
+    }
+}
+
 impl InspectorPrimitive for Color {
     fn ui(&mut self, ui: &mut egui::Ui, _: &dyn Any, _: egui::Id, _: InspectorUi<'_, '_>) -> bool {
         match self {

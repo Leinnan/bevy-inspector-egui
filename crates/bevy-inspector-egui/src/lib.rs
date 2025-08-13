@@ -160,10 +160,6 @@ impl bevy_app::Plugin for DefaultInspectorConfigPlugin {
         if app.is_plugin_added::<Self>() {
             return;
         }
-        #[cfg(feature = "bevy_image")]
-        {
-            app.init_resource::<inspector_egui_impls::image::ScaledDownTextures>();
-        }
 
         // Defensively register stuff since bevy only registers glam, color types used by other structs internally
         app.register_type::<bevy_math::IVec2>()
@@ -202,6 +198,14 @@ impl bevy_app::Plugin for DefaultInspectorConfigPlugin {
             .register_type::<core::ops::Range<f32>>()
             .register_type::<TypeId>();
 
+        #[cfg(feature = "bevy_image")]
+        {
+            app.init_resource::<inspector_egui_impls::image::ScaledDownTextures>();
+            app.add_systems(
+                bevy_app::Update,
+                inspector_egui_impls::image::ScaledDownTextures::reload_assets,
+            );
+        }
         let type_registry = app.world().resource::<bevy_ecs::prelude::AppTypeRegistry>();
         let mut type_registry = type_registry.write();
 

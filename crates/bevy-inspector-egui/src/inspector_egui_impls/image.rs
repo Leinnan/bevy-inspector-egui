@@ -1,15 +1,18 @@
 use crate::utils::pretty_type_name;
-use bevy_asset::{Assets, Handle, UntypedAssetId};
-use bevy_ecs::resource::Resource;
+use bevy_asset::{AssetEvent, AssetId, Assets, Handle, UntypedAssetId};
+use bevy_ecs::{
+    event::EventReader,
+    resource::Resource,
+    system::{Commands, In, ResMut},
+};
 use bevy_image::Image;
 use bevy_math::{URect, UVec2};
 use bevy_reflect::DynamicTypePath;
-use egui::{Vec2, load::SizedTexture};
+use egui::{AtomExt, RichText, Vec2, load::SizedTexture};
 use std::{any::Any, collections::HashMap};
 
 use crate::{
     bevy_inspector::errors::{no_world_in_context, show_error},
-    dropdown::DropDownBox,
     reflect_inspector::InspectorUi,
     restricted_world_view::RestrictedWorldView,
 };
@@ -31,8 +34,22 @@ impl InspectorPrimitive for Handle<Image> {
             no_world_in_context(ui, immutable_self.reflect_short_type_path());
             return false;
         };
+        let scaled_down_textures = world
+            .get_resource_mut::<ScaledDownTextures>()
+            .unwrap()
+            .textures
+            .clone();
+        let Some(image) = ScaledDownTextures::get_or_load(self, world) else {
+            let iimages = world.get_resource_mut::<Assets<Image>>().unwrap();
+            let Some(current_image) = iimages.get(self.id()) else {
+                ui.label("No image");
+                return false;
+            };
+            ui.label(format!("{:?}", current_image.texture_descriptor));
+            ui.label(format!("{:?}", current_image.texture_view_descriptor));
+            return false;
+        };
 
-        update_and_show_image(self, world, ui);
         let (asset_server, images) =
             match world.get_two_resources_mut::<bevy_asset::AssetServer, Assets<Image>>() {
                 (Ok(a), Ok(b)) => (a, b),
@@ -46,13 +63,28 @@ impl InspectorPrimitive for Handle<Image> {
                     return false;
                 }
             };
-
+        let Some(current_image) = images.get(self.id()) else {
+            ui.label("No image by id");
+            return false;
+        };
+        let label = current_image.texture_descriptor.label.map_or(
+            self.path()
+                .and_then(|f| {
+                    Some(
+                        f.path()
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                    )
+                })
+                .unwrap_or_default(),
+            |label| label.to_string(),
+        );
         // get all loaded image paths
-        let mut image_paths = Vec::with_capacity(images.len());
         let mut handles = HashMap::new();
         for image in images.iter() {
             if let Some(image_path) = asset_server.get_path(image.0) {
-                image_paths.push(image_path.to_string());
                 handles.insert(image_path.to_string(), image.0.clone());
             }
         }
@@ -65,38 +97,42 @@ impl InspectorPrimitive for Handle<Image> {
                 data.get_temp_mut_or_default::<String>(id.with("image_picker_search_text")),
             );
         });
-
-        // build and show the dropdown
-        let dropdown = DropDownBox::from_iter(
-            image_paths.iter(),
-            id.with("image_picker"),
-            &mut image_picker_search_text,
-            |ui, path| {
-                let response = ui
-                    .selectable_label(
-                        self.path()
-                            .is_some_and(|p| p.path().as_os_str().to_string_lossy().eq(path)),
-                        path,
-                    )
-                    .on_hover_ui_at_pointer(|ui| {
-                        if let Some(id) = handles.get(path) {
-                            let s: Option<SizedTexture> =
-                                ui.data(|d| d.get_temp(format!("image:{}", id).into()));
-                            if let Some(id) = s {
-                                ui.image(id);
-                            }
-                        }
-                    });
-                if response.clicked() {
-                    selected_path = Some(path.to_string());
+        ui.menu_button(egui::Image::new(image.info).max_height(128.0), |ui| {
+            // ui.text_edit_singleline(&mut image_picker_search_text);
+            for (path, id) in handles.iter() {
+                if !path.contains(&image_picker_search_text) {
+                    continue;
                 }
-                response
-            },
-        )
-        .hint_text("Select image asset");
-        ui.add_enabled(!image_paths.is_empty(), dropdown)
-            .on_disabled_hover_text("No image assets are available");
-
+                let img_id = scaled_down_textures.iter().find_map(|s| {
+                    if s.base_image.id().eq(id) || s.scaled_image.id().eq(id) {
+                        Some(s.info.clone())
+                    } else {
+                        None
+                    }
+                });
+                let clicked = if let Some(id) = img_id {
+                    ui.button((
+                        egui::Image::new(id).atom_max_height(64.0),
+                        RichText::new(path.as_str()),
+                    ))
+                    .clicked()
+                } else {
+                    ui.button(path.as_str()).clicked()
+                };
+                if clicked {
+                    selected_path = Some(path.clone());
+                }
+            }
+        });
+        ui.add(egui::Label::new(label).selectable(false));
+        ui.add(
+            egui::Label::new(format!(
+                "Size: {}x{}",
+                current_image.texture_descriptor.size.width,
+                current_image.texture_descriptor.size.height
+            ))
+            .selectable(false),
+        );
         // update the typed search text
         ui.data_mut(|data| {
             *data.get_temp_mut_or_default::<String>(id.with("image_picker_search_text")) =
@@ -117,22 +153,10 @@ impl InspectorPrimitive for Handle<Image> {
             return;
         };
 
-        update_and_show_image(self, world, ui);
-    }
-}
-
-fn update_and_show_image(
-    image: &Handle<Image>,
-    world: &mut RestrictedWorldView,
-    ui: &mut egui::Ui,
-) {
-    let Some(image) = ScaledDownTextures::get_or_load(image, world) else {
-        return;
-    };
-    if image.info.size.max_elem() >= 128.0 {
-        let _response = egui::CollapsingHeader::new("Texture").show(ui, |ui| ui.image(image.info));
-    } else {
-        let _response = ui.image(image.info);
+        let Some(image) = ScaledDownTextures::get_or_load(self, world) else {
+            return;
+        };
+        ui.add(egui::Image::new(image.info).max_height(128.0));
     }
 }
 
@@ -167,6 +191,97 @@ impl ScaledDownTextures {
         self.max_size = new_size.into();
     }
 
+    pub fn try_get_image(&self, id: AssetId<Image>) -> Option<RescaledTextureInfo> {
+        self.textures
+            .iter()
+            .find(|info| info.base_image.id().eq(&id) || info.scaled_image.id().eq(&id))
+            .cloned()
+    }
+
+    pub fn reload_assets(
+        mut assets: EventReader<AssetEvent<Image>>,
+        mut images: ResMut<Self>,
+        mut images_assets: ResMut<Assets<Image>>,
+        mut commands: Commands,
+    ) {
+        for event in assets.read() {
+            if let AssetEvent::Modified { id } = event {
+                if let Some(r_pos) = images
+                    .textures
+                    .iter_mut()
+                    .position(|info| info.base_image.id().eq(id))
+                {
+                    eprintln!("REMOVE OLD ONE");
+                    images.textures.remove(r_pos);
+                    if let Some(handle) = images_assets.get_strong_handle(*id) {
+                        commands.run_system_cached_with(Self::load_texture, handle);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn load_texture(
+        In(img): In<Handle<Image>>,
+        mut resized_images: ResMut<Self>,
+        mut images: ResMut<Assets<Image>>,
+        mut egui_txt: ResMut<bevy_egui::EguiUserTextures>,
+    ) {
+        if resized_images.try_get_image(img.id()).is_some() {
+            return;
+        }
+        let Some(image) = images.get(img.id()) else {
+            return;
+        };
+        if image
+            .texture_descriptor
+            .dimension
+            .ne(&bevy_render::render_resource::TextureDimension::D2)
+        {
+            return;
+        }
+        let max_size = resized_images.max_size;
+        if image
+            .texture_descriptor
+            .dimension
+            .eq(&bevy_render::render_resource::TextureDimension::D2)
+            && image.size().max_element() <= max_size.min_element()
+        {
+            let texture_id = egui_txt.add_image(img.clone());
+            let new_info = RescaledTextureInfo {
+                base_image: img.clone(),
+                scaled_image: img.clone(),
+                info: SizedTexture {
+                    id: texture_id,
+                    size: [image.size().x as f32, image.size().y as f32].into(),
+                },
+            };
+            resized_images.textures.push(new_info);
+            return;
+        }
+        let Some((image_gen, is_srgb)) = image_texture_conversion::try_into_dynamic(image) else {
+            return;
+        };
+        let resized = image_gen.resize(
+            max_size.x,
+            max_size.y,
+            image::imageops::FilterType::Triangle,
+        );
+        let resized = image_texture_conversion::from_dynamic(resized, is_srgb);
+        let size = Vec2::new(resized.width() as f32, resized.height() as f32);
+        let resized_handle = images.add(resized);
+        let texture_id = egui_txt.add_image(resized_handle.clone());
+        let new_info = RescaledTextureInfo {
+            base_image: img.clone(),
+            scaled_image: resized_handle.clone(),
+            info: SizedTexture {
+                id: texture_id,
+                size,
+            },
+        };
+        resized_images.textures.push(new_info);
+    }
+
     /// Gets or loads a scaled down texture for the given image.
     pub fn get_or_load<'a>(
         image: &Handle<Image>,
@@ -176,47 +291,24 @@ impl ScaledDownTextures {
             resource
                 .textures
                 .iter()
-                .find(|info| info.base_image.id().eq(&image.id()))
+                .find(|info| {
+                    info.base_image.id().eq(&image.id()) || info.scaled_image.id().eq(&image.id())
+                })
                 .cloned()
         }) {
             return Some(res);
         }
-        let max_size = world
-            .get_resource_mut::<Self>()
-            .ok()
-            .map(|res| res.max_size.clone())
-            .unwrap_or(UVec2::splat(100));
-        let new_texture_info = {
-            let (mut egui_user_textures, mut images) =
-                match world.get_two_resources_mut::<bevy_egui::EguiUserTextures, Assets<Image>>() {
-                    (Ok(a), Ok(b)) => (a, b),
-                    _ => return None,
-                };
-            let original = images.get(image)?;
-
-            let (image_gen, is_srgb) = image_texture_conversion::try_into_dynamic(original)?;
-            let resized = image_gen.resize(
-                max_size.x,
-                max_size.y,
-                image::imageops::FilterType::Triangle,
-            );
-            let resized = image_texture_conversion::from_dynamic(resized, is_srgb);
-            let size = Vec2::new(resized.width() as f32, resized.height() as f32);
-            let resized_handle = images.add(resized);
-            let texture_id = egui_user_textures.add_image(resized_handle.clone());
-            RescaledTextureInfo {
-                base_image: image.clone(),
-                scaled_image: resized_handle.clone(),
-                info: SizedTexture {
-                    id: texture_id,
-                    size,
-                },
-            }
-        };
-        if let Ok(mut resource) = world.get_resource_mut::<Self>() {
-            resource.textures.push(new_texture_info.clone());
+        if image.path().is_none() {
+            return None;
         }
-        Some(new_texture_info)
+        unsafe {
+            world
+                .world()
+                .into_deferred()
+                .commands()
+                .run_system_cached_with(Self::load_texture, image.clone());
+        }
+        return None;
     }
 
     /// Gets or loads a scaled down texture for the given image.
@@ -244,6 +336,7 @@ impl ScaledDownTextures {
             let (image_gen, is_srgb) = image_texture_conversion::try_into_dynamic(original)?;
             let resized = image_gen.crop_imm(rect.min.x, rect.min.y, rect.width(), rect.height());
             let resized = image_texture_conversion::from_dynamic(resized, is_srgb);
+
             let size = Vec2::new(resized.width() as f32, resized.height() as f32);
             let resized_handle = images.add(resized);
             let texture_id = egui_user_textures.add_image(resized_handle.clone());

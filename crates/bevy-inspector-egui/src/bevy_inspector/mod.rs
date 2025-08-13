@@ -161,9 +161,20 @@ pub fn ui_for_all_assets(world: &mut World, ui: &mut egui::Ui) {
         .collect();
     assets.sort_by(|(name_a, ..), (name_b, ..)| name_a.cmp(name_b));
     for (name, type_id) in assets {
-        ui.collapsing(name, |ui| {
-            by_type_id::ui_for_assets(world, type_id, ui, &type_registry);
-        });
+        let assets_amount = by_type_id::assets_of_type(world, type_id, &type_registry);
+        let header_response = egui::CollapsingHeader::new(format!("{} ({})", name, assets_amount))
+            .enabled(assets_amount > 0)
+            .show(ui, |ui| {
+                by_type_id::ui_for_assets(world, type_id, ui, &type_registry)
+            })
+            .header_response;
+        #[cfg(feature = "documentation")]
+        {
+            let type_docs = type_registry
+                .get_type_info(type_id)
+                .and_then(|info| info.docs());
+            crate::egui_utils::show_docs(header_response, type_docs);
+        }
     }
 }
 
@@ -901,6 +912,19 @@ pub mod by_type_id {
         }
 
         queue.apply(world);
+    }
+
+    pub fn assets_of_type(
+        world: &World,
+        asset_type_id: TypeId,
+        type_registry: &TypeRegistry,
+    ) -> usize {
+        let Some(registration) = type_registry.get(asset_type_id) else {
+            return 0;
+        };
+        registration
+            .data::<ReflectAsset>()
+            .map_or(0, |reflect_asset| reflect_asset.ids(world).count())
     }
 
     /// Display all assets of the given asset [`TypeId`]
